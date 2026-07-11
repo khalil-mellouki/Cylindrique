@@ -4,7 +4,7 @@ A small workspace app for organizing work into Teams, Projects, and Notes.
 
 ## Live
 
-- Frontend (Vercel): <add your Vercel URL here>
+- Frontend (Vercel): https://cylindrique-three.vercel.app
 - Backend API (Render): https://cylindrique-api.onrender.com
 - API docs (Swagger): https://cylindrique-api.onrender.com/docs
 
