@@ -13,6 +13,15 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    // Hooks in this directory intentionally synchronize React state with
+    // external systems (a media-query listener and remote data fetching),
+    // where setting state inside an effect is the correct, standard pattern.
+    files: ["src/hooks/**/*.{ts,tsx}"],
+    rules: {
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;
