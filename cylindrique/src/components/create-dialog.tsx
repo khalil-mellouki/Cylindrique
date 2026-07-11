@@ -179,6 +179,10 @@ export function CreateDialog({
                   <Select
                     value={projectId}
                     onValueChange={(value) => setProjectId(value ?? "")}
+                    items={projects.map((project) => ({
+                      value: project.id,
+                      label: project.name,
+                    }))}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select a project" />

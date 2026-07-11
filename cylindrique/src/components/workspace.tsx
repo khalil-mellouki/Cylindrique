@@ -54,6 +54,14 @@ export function Workspace() {
     setSearch("");
   }
 
+  function handleSelectTeam(id: string) {
+    ws.selectTeam(id);
+    // Drop any state that referenced the previous team.
+    setFilterProjectId(null);
+    setSelectedNoteId(null);
+    setSearch("");
+  }
+
   function openCreate(nextType: CreateType) {
     setCreateType(nextType);
     setCreateOpen(true);
@@ -140,7 +148,7 @@ export function Workspace() {
             activeTeamId={ws.activeTeamId}
             projects={ws.projects}
             notes={ws.notes}
-            onSelectTeam={ws.selectTeam}
+            onSelectTeam={handleSelectTeam}
           />
         );
       default:
@@ -157,7 +165,7 @@ export function Workspace() {
         notesCount={ws.notes.length}
         contentLoading={ws.contentLoading}
         view={view}
-        onSelectTeam={ws.selectTeam}
+        onSelectTeam={handleSelectTeam}
         onNavigate={navigate}
         onOpenProject={openProjectNotes}
         onCreateTeam={() => openCreate("team")}

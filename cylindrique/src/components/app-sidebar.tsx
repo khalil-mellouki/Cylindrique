@@ -79,7 +79,7 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <DropdownMenu>
-              <DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
+              <DropdownMenuTrigger className="flex h-12 w-full items-center gap-2 rounded-md p-2 text-left outline-hidden ring-sidebar-ring transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 aria-expanded:bg-sidebar-accent">
                 {activeTeam ? (
                   <WorkspaceAvatar
                     label={initials(activeTeam.name)}
