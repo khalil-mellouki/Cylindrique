@@ -24,11 +24,19 @@ if DATABASE_URL.startswith("postgresql://"):
 
 _is_sqlite = DATABASE_URL.startswith("sqlite")
 
+if _is_sqlite:
+    _connect_args = {"check_same_thread": False}
+else:
+    # Supabase's transaction pooler (pgbouncer) can't reuse server-side
+    # prepared statements across pooled connections; disable psycopg's
+    # auto-preparation to avoid "prepared statement already exists" errors.
+    _connect_args = {"prepare_threshold": None}
+
 engine = create_engine(
     DATABASE_URL,
     echo=False,
     pool_pre_ping=not _is_sqlite,
-    connect_args={"check_same_thread": False} if _is_sqlite else {},
+    connect_args=_connect_args,
 )
 
 

@@ -1,0 +1,23 @@
+# Render Blueprint for the Cylindrique FastAPI backend (free tier).
+# Deploy via https://dashboard.render.com -> New -> Blueprint, or configure the
+# same settings manually as a new Web Service. DATABASE_URL and ALLOWED_ORIGINS
+# are marked `sync: false`, so Render will prompt you to enter them (secrets are
+# never committed to the repo).
+services:
+  - type: web
+    name: cylindrique-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      # Pin a Python version Render provides wheels for (3.14 is too new there).
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      # Supabase pooled connection string (transaction mode, port 6543).
+      - key: DATABASE_URL
+        sync: false
+      # Comma-separated frontend origin(s) allowed by CORS.
+      - key: ALLOWED_ORIGINS
+        sync: false
