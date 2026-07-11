@@ -1,0 +1,28 @@
+# Project planning docs — not committed
+cylindrique-project-plan.md
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env*.local
+
+# Misc
+.DS_Store
+*.log
+.vercel
