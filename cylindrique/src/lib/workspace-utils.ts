@@ -52,7 +52,11 @@ export function initials(name: string): string {
 
 /** Short relative time ("Just now", "3h ago") falling back to a short date. */
 export function formatRelative(iso: string): string {
-  const date = new Date(iso);
+  // The API returns UTC timestamps. If the string carries no timezone marker,
+  // treat it as UTC — otherwise the browser parses it as local time, which
+  // shifts every relative value by the viewer's UTC offset.
+  const utc = /[zZ]|[+-]\d{2}:\d{2}$/.test(iso) ? iso : `${iso}Z`;
+  const date = new Date(utc);
   const ms = date.getTime();
   if (Number.isNaN(ms)) return "";
 

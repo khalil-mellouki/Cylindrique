@@ -85,6 +85,8 @@ export const api = {
   notes: {
     list: (projectId: string) =>
       apiGet<Note[]>(`/api/projects/${projectId}/notes`),
+    listByTeam: (teamId: string) =>
+      apiGet<Note[]>(`/api/teams/${teamId}/notes`),
     create: (projectId: string, data: NoteCreate) =>
       apiPost<Note>(`/api/projects/${projectId}/notes`, data),
     update: (noteId: string, data: NoteUpdate) =>

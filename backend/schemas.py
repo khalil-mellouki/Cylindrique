@@ -6,9 +6,24 @@ can only set the fields listed here, never server-managed columns like `id`,
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
+from pydantic import field_serializer
 from sqlmodel import Field, SQLModel
+
+
+class _UTCTimestamps(SQLModel):
+    """Serialize datetime columns as UTC ISO strings (with a timezone offset).
+
+    The values are stored as UTC but read back as naive datetimes; without this
+    a client would parse them as local time and get the wrong relative times.
+    """
+
+    @field_serializer("created_at", "updated_at", check_fields=False)
+    def _serialize_timestamps(self, value: datetime) -> str:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
 
 
 # --- Team ---
@@ -16,7 +31,7 @@ class TeamCreate(SQLModel):
     name: str = Field(min_length=1, max_length=120)
 
 
-class TeamRead(SQLModel):
+class TeamRead(_UTCTimestamps):
     id: uuid.UUID
     name: str
     created_at: datetime
@@ -27,7 +42,7 @@ class ProjectCreate(SQLModel):
     name: str = Field(min_length=1, max_length=120)
 
 
-class ProjectRead(SQLModel):
+class ProjectRead(_UTCTimestamps):
     id: uuid.UUID
     team_id: uuid.UUID
     name: str
@@ -47,7 +62,7 @@ class NoteUpdate(SQLModel):
     content: str | None = None
 
 
-class NoteRead(SQLModel):
+class NoteRead(_UTCTimestamps):
     id: uuid.UUID
     project_id: uuid.UUID
     title: str

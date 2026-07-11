@@ -47,7 +47,7 @@ export function useWorkspace(): UseWorkspace {
   const [projects, setProjects] = useState<Project[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(true);
-  const [contentLoading, setContentLoading] = useState(false);
+  const [loadedTeamId, setLoadedTeamId] = useState<string | null>(null);
 
   // Load teams once on mount.
   useEffect(() => {
@@ -79,26 +79,41 @@ export function useWorkspace(): UseWorkspace {
     }
     let active = true;
     (async () => {
-      setContentLoading(true);
       try {
         const teamProjects = await api.projects.list(activeTeamId);
         if (!active) return;
-        setProjects(teamProjects);
-        const noteLists = await Promise.all(
-          teamProjects.map((project) => api.notes.list(project.id)),
-        );
+        let teamNotes: Note[];
+        try {
+          teamNotes = await api.notes.listByTeam(activeTeamId);
+        } catch {
+          // Fallback if the aggregated endpoint isn't deployed yet.
+          const lists = await Promise.all(
+            teamProjects.map((project) => api.notes.list(project.id)),
+          );
+          teamNotes = lists.flat();
+        }
         if (!active) return;
-        setNotes(noteLists.flat());
+        setProjects(teamProjects);
+        setNotes(teamNotes);
       } catch (error) {
-        if (active) toast.error(errorMessage(error, "Failed to load workspace"));
+        if (active) {
+          setProjects([]);
+          setNotes([]);
+          toast.error(errorMessage(error, "Failed to load workspace"));
+        }
       } finally {
-        if (active) setContentLoading(false);
+        if (active) setLoadedTeamId(activeTeamId);
       }
     })();
     return () => {
       active = false;
     };
   }, [activeTeamId]);
+
+  // Content is "loading" until the active team's data has been fetched. Deriving
+  // this (instead of a separate flag) removes the flash of empty state between a
+  // team becoming active and the fetch effect starting.
+  const contentLoading = activeTeamId !== null && activeTeamId !== loadedTeamId;
 
   const selectTeam = useCallback((id: string) => setActiveTeamId(id), []);
 

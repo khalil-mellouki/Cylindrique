@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel import Session, select
 
 from database import get_session
-from models import Note, Project, utcnow
+from models import Note, Project, Team, utcnow
 from schemas import NoteCreate, NoteRead, NoteUpdate
 
 router = APIRouter(prefix="/api", tags=["notes"])
@@ -31,6 +31,19 @@ def list_notes(project_id: uuid.UUID, session: Session = Depends(get_session)):
     _get_project_or_404(project_id, session)
     return session.exec(
         select(Note).where(Note.project_id == project_id).order_by(Note.created_at)
+    ).all()
+
+
+@router.get("/teams/{team_id}/notes", response_model=list[NoteRead])
+def list_team_notes(team_id: uuid.UUID, session: Session = Depends(get_session)):
+    """All notes across a team's projects, in one query (avoids N+1 fetches)."""
+    if session.get(Team, team_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+    return session.exec(
+        select(Note)
+        .join(Project, Note.project_id == Project.id)
+        .where(Project.team_id == team_id)
+        .order_by(Note.created_at)
     ).all()
 
 

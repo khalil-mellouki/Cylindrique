@@ -13,6 +13,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -105,24 +106,26 @@ export function AppSidebar({
                 align="start"
                 sideOffset={6}
               >
-                <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
-                {teams.map((team) => (
-                  <DropdownMenuItem
-                    key={team.id}
-                    className="gap-2"
-                    onClick={() => onSelectTeam(team.id)}
-                  >
-                    <WorkspaceAvatar
-                      label={initials(team.name)}
-                      color={accentFromId(team.id)}
-                      className="size-6 text-[10px]"
-                    />
-                    <span className="flex-1 truncate">{team.name}</span>
-                    {team.id === activeTeam?.id ? (
-                      <Check className="size-4" />
-                    ) : null}
-                  </DropdownMenuItem>
-                ))}
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+                  {teams.map((team) => (
+                    <DropdownMenuItem
+                      key={team.id}
+                      className="gap-2"
+                      onClick={() => onSelectTeam(team.id)}
+                    >
+                      <WorkspaceAvatar
+                        label={initials(team.name)}
+                        color={accentFromId(team.id)}
+                        className="size-6 text-[10px]"
+                      />
+                      <span className="flex-1 truncate">{team.name}</span>
+                      {team.id === activeTeam?.id ? (
+                        <Check className="size-4" />
+                      ) : null}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
                 {teams.length > 0 ? <DropdownMenuSeparator /> : null}
                 <DropdownMenuItem className="gap-2" onClick={onCreateTeam}>
                   <div className="flex size-6 items-center justify-center rounded-md border border-dashed">
