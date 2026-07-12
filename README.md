@@ -1,101 +1,109 @@
 # Cylindrique
 
-A small workspace app for organizing work into Teams, Projects, and Notes.
+A collaborative workspace app: sign in with Google, create Teams, invite people,
+and organize work into Projects, Notes, and Comments — with role-based access
+control enforced at the database level.
 
 ## Live
 
 - Frontend (Vercel): https://cylindrique-three.vercel.app
-- Backend API (Render): https://cylindrique-api.onrender.com
-- API docs (Swagger): https://cylindrique-api.onrender.com/docs
+- Auth + data + storage: Supabase (project `mqspwlizbdnujbpuclpe`)
 
 ## Stack
 
 - Frontend: Next.js (App Router) + TypeScript + Tailwind + shadcn/ui, on Vercel
-- Backend: FastAPI + SQLModel, on Render
-- Database: Supabase (Postgres)
+- Backend: **none** — the frontend talks directly to Supabase
+- Auth: Supabase Auth (Google OAuth)
+- Database + Storage: Supabase (Postgres with Row Level Security; Storage for avatars)
+
+> An earlier version used a FastAPI backend (still in `backend/`, now unused). It
+> was retired when auth was added: with a privileged backend connection, Postgres
+> RLS can't enforce per-user access. Talking to Supabase directly makes **RLS the
+> real security boundary**.
 
 ## Architecture
 
-    Browser -> Next.js (Vercel) -> FastAPI (Render) -> Supabase (Postgres)
+    Browser ──(auth cookie / user JWT)──► Supabase (Postgres + RLS, Auth, Storage)
+        └── Next.js (Vercel): UI, @supabase/ssr session, middleware route guard
 
-The frontend never talks to the database directly. It calls the FastAPI
-backend through a typed fetch wrapper (cylindrique/src/lib/api.ts), and the
-backend owns all database access.
+The frontend uses `@supabase/ssr`. Middleware refreshes the session and redirects
+unauthenticated users to `/login`. Every query runs as the signed-in user, and
+**RLS decides what rows they can see or change** — even a UI bug can't leak data.
 
-Why these choices:
+## Security model (RLS + RBAC)
 
-- Postgres (Supabase) over SQLite: hosted/serverless filesystems don't
-  persist, so a managed database is needed for data to survive restarts.
-- Backend-first: the API was built and tested before the UI, so the frontend
-  had a real, working contract to build against.
-- shadcn/ui: consistent, accessible components instead of hand-rolled UI.
+- RLS is enabled on every table; nothing is reachable by anonymous users.
+- Membership checks used inside policies go through `SECURITY DEFINER` helpers in
+  a private schema, so they can't be called directly and can't cause policy
+  recursion.
+- Mutations with cross-row invariants (accept invite, join by link, role changes,
+  leave/remove/transfer) go through `SECURITY DEFINER` RPCs — `team_members` has
+  no direct client write path, preventing privilege escalation.
+- Roles per team: **owner / admin / member**. Owner manages everything; admin
+  invites and manages content; member creates/edits projects, notes, comments.
+
+The full schema, policies, and functions are one migration:
+[`supabase/migrations/0001_auth_rbac.sql`](supabase/migrations/0001_auth_rbac.sql).
 
 ## Data model
 
-    teams
-      id (uuid, pk), name, created_at
+    profiles(id → auth.users, username, full_name, bio, contact_email, links, avatar_url)
+    teams(id, name, owner_id)
+    team_members(team_id, user_id, role)             -- owner/admin/member
+    team_invites(id, team_id, invitee_id, role, status)
+    team_invite_links(id, team_id, token, role, expires_at, max_uses, uses)
+    projects(id, team_id, name, created_by)
+    notes(id, project_id, title, content, created_by)
+    comments(id, note_id, author_id, body)
 
-    projects
-      id (uuid, pk), team_id -> teams.id, name, created_at
+Foreign keys cascade down; deleting a user cascades to their profile and owned
+teams. Projects/notes inherit access from team membership.
 
-    notes
-      id (uuid, pk), project_id -> projects.id, title, content,
-      created_at, updated_at
+## Features
 
-Foreign keys use ON DELETE CASCADE: deleting a team removes its projects, and
-deleting a project removes its notes. This keeps the data consistent without
-extra cleanup code.
-
-## API endpoints
-
-    GET     /api/health
-    GET     /api/teams
-    POST    /api/teams
-    GET     /api/teams/{team_id}/projects
-    POST    /api/teams/{team_id}/projects
-    GET     /api/projects/{project_id}/notes
-    POST    /api/projects/{project_id}/notes
-    PUT     /api/notes/{note_id}
-    DELETE  /api/notes/{note_id}
+- Google sign-in; auto-created profile; editable profile with avatar upload and a
+  public `/u/<username>` page.
+- Teams with members; invite by username search or a shareable `/join/<token>`
+  link; accept/decline received invitations.
+- Projects and notes; per-note comments.
+- Role-gated management (change roles, remove members, transfer ownership, leave).
 
 ## Run locally
 
-Backend:
+Requires Docker (for the local Supabase stack) and Node.
 
-    cd backend
-    python -m venv .venv
-    .venv\Scripts\activate          # Windows (use "py -m venv .venv" if needed)
-    # source .venv/bin/activate     # macOS/Linux
-    pip install -r requirements.txt
-    uvicorn main:app --reload
+    # 1) Start Supabase locally (applies the migration)
+    supabase start
 
-With no DATABASE_URL set, the backend uses a local SQLite file, so no database
-setup is needed for development. To use Postgres, set DATABASE_URL (see
-backend/.env.example).
-
-Frontend:
-
+    # 2) Frontend
     cd cylindrique
     npm install
-    # create .env.local containing:
-    #   NEXT_PUBLIC_API_URL=http://localhost:8000
-    npm run dev
+    # .env.local  (use the values `supabase start` prints for local, or the
+    #              hosted project's values):
+    #   NEXT_PUBLIC_SUPABASE_URL=...
+    #   NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+    npm run dev        # http://localhost:3000
 
-Then open http://localhost:3000
+Google OAuth must be configured in the Supabase dashboard (Auth → Providers →
+Google) with the callback `https://<project>.supabase.co/auth/v1/callback`.
 
-## Trade-offs (deliberate)
+## Tests
 
-- No authentication — out of scope for this build.
-- No pagination — fine at this data size.
-- No automated tests — the API was verified with an end-to-end smoke script.
-- Fetch-then-refresh instead of optimistic UI — simpler and more predictable.
-- The design showed team members, project status/progress, and note authors.
-  These aren't in the data model, so they were left out to keep everything
-  backed by real, persisted data.
+    cd cylindrique
+    # RLS isolation + RBAC (needs a running local stack; keys from `supabase start`)
+    SUPABASE_URL=... SUPABASE_ANON_KEY=... SUPABASE_SERVICE_ROLE_KEY=... \
+      node tests/rls.test.mjs
+    # Authenticated E2E (app running on APP_URL, local stack keys)
+    SUPABASE_URL=... SUPABASE_ANON_KEY=... SUPABASE_SERVICE_ROLE_KEY=... \
+      APP_URL=http://localhost:3000 node tests/e2e.mjs
 
-## With more time
+`tests/rls.test.mjs` proves cross-user isolation, RPC-only membership, and the
+RBAC invariants. The RLS policies were also hardened via an adversarial audit.
 
-- Authentication (Supabase Auth) and per-user data.
-- React Query for caching and optimistic updates.
-- Tests on the API routes.
-- Search across the whole workspace, and pagination.
+## Trade-offs
+
+- No public team directory — teams are private; you join by invite or link.
+- Notes are aggregated per team with a couple of queries (no server-side join
+  endpoint) — fine at this scale.
+- `contact_email` is not auto-filled from the login email (privacy); users opt in.
+- No pagination yet.
