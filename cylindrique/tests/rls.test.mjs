@@ -107,8 +107,9 @@ const { error: accErr } = await B.client.rpc("accept_invite", { _invite_id: invi
 check("B accepts via RPC", !accErr);
 await expectRows("B now sees the team", B.client.from("teams").select("*").eq("id", team.id), 1);
 await expectRows("B now sees the note", B.client.from("notes").select("*").eq("id", note.id), 1);
-const { error: cErr } = await B.client.from("comments").insert({ note_id: note.id, body: "hello" });
-check("B comments on the note", !cErr);
+const { data: bComment, error: cErr } = await B.client
+  .from("comments").insert({ note_id: note.id, body: "hello" }).select().single();
+check("B comments on the note", !cErr && !!bComment);
 
 console.log("== RBAC invariants ==");
 await expectErr("A (sole owner) cannot leave", A.client.rpc("leave_team", { _team_id: team.id }));
@@ -123,6 +124,44 @@ const { error: joinErr } = await C.client.rpc("join_team_via_link", { _token: li
 check("C joins via link", !joinErr);
 await expectRows("C now sees the team", C.client.from("teams").select("*").eq("id", team.id), 1);
 await expectErr("bad token rejected", C.client.rpc("join_team_via_link", { _token: "deadbeef00" }));
+
+console.log("== security-audit regressions ==");
+// (C is a member of `team` via the link.)
+// 1. remove_member NULL guard: an outsider cannot remove a member.
+const D = await makeUser("d");
+await expectErr(
+  "outsider cannot remove_member",
+  D.client.rpc("remove_member", { _team_id: team.id, _user_id: B.id }),
+);
+
+// 2. admins cannot change other admins.
+await A.client.rpc("set_member_role", { _team_id: team.id, _user_id: B.id, _role: "admin" });
+await A.client.rpc("set_member_role", { _team_id: team.id, _user_id: C.id, _role: "admin" });
+await expectErr(
+  "admin cannot demote a peer admin",
+  B.client.rpc("set_member_role", { _team_id: team.id, _user_id: C.id, _role: "member" }),
+);
+
+// 3. cross-team comment injection: cannot retarget a comment to a note in a
+//    team you don't belong to.
+const E = await makeUser("e");
+const { data: t2 } = await E.client.from("teams").insert({ name: "Beta" }).select().single();
+const { data: p2 } = await E.client
+  .from("projects").insert({ team_id: t2.id, name: "P2" }).select().single();
+const { data: n2 } = await E.client
+  .from("notes").insert({ project_id: p2.id, title: "N2", content: "other" }).select().single();
+await expectErr(
+  "cannot retarget a comment into another team's note",
+  B.client.from("comments").update({ note_id: n2.id }).eq("id", bComment.id).select().single(),
+);
+
+// 4. a former member cannot destroy the team's data after leaving.
+const { data: bProj } = await B.client
+  .from("projects").insert({ team_id: team.id, name: "temp" }).select().single();
+await B.client.rpc("leave_team", { _team_id: team.id });
+await B.client.from("projects").delete().eq("id", bProj.id); // silently affects 0 rows
+const { data: survived } = await A.client.from("projects").select("id").eq("id", bProj.id);
+check("former member's delete was blocked (project survives)", survived?.length === 1);
 
 console.log(failures === 0 ? "\nALL RLS TESTS PASSED ✅" : `\n${failures} FAILURE(S) ❌`);
 process.exit(failures === 0 ? 0 : 1);

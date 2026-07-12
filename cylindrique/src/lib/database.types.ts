@@ -373,9 +373,6 @@ export type Database = {
     }
     Functions: {
       accept_invite: { Args: { _invite_id: string }; Returns: string }
-      can_access_note: { Args: { _note_id: string }; Returns: boolean }
-      can_access_project: { Args: { _project_id: string }; Returns: boolean }
-      can_manage_team: { Args: { _team_id: string }; Returns: boolean }
       decline_invite: { Args: { _invite_id: string }; Returns: undefined }
       invite_inbox: {
         Args: never
@@ -388,8 +385,6 @@ export type Database = {
           team_name: string
         }[]
       }
-      is_team_member: { Args: { _team_id: string }; Returns: boolean }
-      is_team_owner: { Args: { _team_id: string }; Returns: boolean }
       join_team_via_link: { Args: { _token: string }; Returns: string }
       leave_team: { Args: { _team_id: string }; Returns: undefined }
       preview_invite_link: {
@@ -413,16 +408,6 @@ export type Database = {
           _user_id: string
         }
         Returns: undefined
-      }
-      team_of_note: { Args: { _note_id: string }; Returns: string }
-      team_of_project: { Args: { _project_id: string }; Returns: string }
-      team_role: {
-        Args: { _team_id: string }
-        Returns: Database["public"]["Enums"]["team_role"]
-      }
-      team_role_of: {
-        Args: { _team_id: string; _user_id: string }
-        Returns: Database["public"]["Enums"]["team_role"]
       }
       transfer_ownership: {
         Args: { _new_owner: string; _team_id: string }

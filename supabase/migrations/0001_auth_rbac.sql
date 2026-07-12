@@ -20,6 +20,13 @@
 create extension if not exists pg_trgm with schema extensions;
 create extension if not exists pgcrypto with schema extensions;
 
+-- Private schema for the SECURITY DEFINER membership helpers. PostgREST only
+-- exposes `public` (+ configured) schemas as RPCs, so putting helpers here means
+-- they CANNOT be called directly by clients (preventing roster enumeration via
+-- team_role_of / team_of_*), while RLS policies can still reference them.
+create schema if not exists private;
+grant usage on schema private to authenticated;
+
 -- ---------------------------------------------------------------------------
 -- 2. Destructive reset of the old (auth-less) schema
 -- ---------------------------------------------------------------------------
@@ -157,7 +164,7 @@ revoke all on all tables in schema public from anon;
 -- ---------------------------------------------------------------------------
 -- 6. SECURITY DEFINER helpers (define BEFORE policies; anti-recursion core)
 -- ---------------------------------------------------------------------------
-create or replace function public.is_team_member(_team_id uuid)
+create or replace function private.is_team_member(_team_id uuid)
 returns boolean language sql stable security definer set search_path = '' as $$
   select exists (
     select 1 from public.team_members
@@ -165,34 +172,34 @@ returns boolean language sql stable security definer set search_path = '' as $$
   );
 $$;
 
-create or replace function public.team_role(_team_id uuid)
+create or replace function private.team_role(_team_id uuid)
 returns public.team_role language sql stable security definer set search_path = '' as $$
   select role from public.team_members
   where team_id = _team_id and user_id = auth.uid();
 $$;
 
-create or replace function public.team_role_of(_team_id uuid, _user_id uuid)
+create or replace function private.team_role_of(_team_id uuid, _user_id uuid)
 returns public.team_role language sql stable security definer set search_path = '' as $$
   select role from public.team_members
   where team_id = _team_id and user_id = _user_id;
 $$;
 
-create or replace function public.can_manage_team(_team_id uuid)
+create or replace function private.can_manage_team(_team_id uuid)
 returns boolean language sql stable security definer set search_path = '' as $$
-  select public.team_role(_team_id) in ('owner', 'admin');
+  select private.team_role(_team_id) in ('owner', 'admin');
 $$;
 
-create or replace function public.is_team_owner(_team_id uuid)
+create or replace function private.is_team_owner(_team_id uuid)
 returns boolean language sql stable security definer set search_path = '' as $$
-  select public.team_role(_team_id) = 'owner';
+  select private.team_role(_team_id) = 'owner';
 $$;
 
-create or replace function public.team_of_project(_project_id uuid)
+create or replace function private.team_of_project(_project_id uuid)
 returns uuid language sql stable security definer set search_path = '' as $$
   select team_id from public.projects where id = _project_id;
 $$;
 
-create or replace function public.team_of_note(_note_id uuid)
+create or replace function private.team_of_note(_note_id uuid)
 returns uuid language sql stable security definer set search_path = '' as $$
   select p.team_id
   from public.notes n
@@ -200,27 +207,27 @@ returns uuid language sql stable security definer set search_path = '' as $$
   where n.id = _note_id;
 $$;
 
-create or replace function public.can_access_project(_project_id uuid)
+create or replace function private.can_access_project(_project_id uuid)
 returns boolean language sql stable security definer set search_path = '' as $$
-  select public.is_team_member(public.team_of_project(_project_id));
+  select private.is_team_member(private.team_of_project(_project_id));
 $$;
 
-create or replace function public.can_access_note(_note_id uuid)
+create or replace function private.can_access_note(_note_id uuid)
 returns boolean language sql stable security definer set search_path = '' as $$
-  select public.is_team_member(public.team_of_note(_note_id));
+  select private.is_team_member(private.team_of_note(_note_id));
 $$;
 
 revoke all on function
-  public.is_team_member(uuid), public.team_role(uuid), public.team_role_of(uuid, uuid),
-  public.can_manage_team(uuid), public.is_team_owner(uuid),
-  public.team_of_project(uuid), public.team_of_note(uuid),
-  public.can_access_project(uuid), public.can_access_note(uuid)
+  private.is_team_member(uuid), private.team_role(uuid), private.team_role_of(uuid, uuid),
+  private.can_manage_team(uuid), private.is_team_owner(uuid),
+  private.team_of_project(uuid), private.team_of_note(uuid),
+  private.can_access_project(uuid), private.can_access_note(uuid)
 from public;
 grant execute on function
-  public.is_team_member(uuid), public.team_role(uuid), public.team_role_of(uuid, uuid),
-  public.can_manage_team(uuid), public.is_team_owner(uuid),
-  public.team_of_project(uuid), public.team_of_note(uuid),
-  public.can_access_project(uuid), public.can_access_note(uuid)
+  private.is_team_member(uuid), private.team_role(uuid), private.team_role_of(uuid, uuid),
+  private.can_manage_team(uuid), private.is_team_owner(uuid),
+  private.team_of_project(uuid), private.team_of_note(uuid),
+  private.can_access_project(uuid), private.can_access_note(uuid)
 to authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -247,79 +254,90 @@ create policy profiles_update on public.profiles
 -- INSERT ... RETURNING, before the AFTER-trigger adds their membership.
 create policy teams_select on public.teams
   for select to authenticated
-  using (public.is_team_member(id) or owner_id = auth.uid());
+  using (private.is_team_member(id) or owner_id = auth.uid());
 create policy teams_insert on public.teams
   for insert to authenticated with check (owner_id = auth.uid());
 create policy teams_update on public.teams
-  for update to authenticated using (public.can_manage_team(id)) with check (public.can_manage_team(id));
+  for update to authenticated using (private.can_manage_team(id)) with check (private.can_manage_team(id));
 create policy teams_delete on public.teams
-  for delete to authenticated using (public.is_team_owner(id));
+  for delete to authenticated using (private.is_team_owner(id));
 
 -- team_members: read co-members of your teams; ALL writes via RPC only.
 create policy team_members_select on public.team_members
-  for select to authenticated using (public.is_team_member(team_id));
+  for select to authenticated using (private.is_team_member(team_id));
 
 -- team_invites
 create policy team_invites_select on public.team_invites
   for select to authenticated
-  using (invitee_id = auth.uid() or public.can_manage_team(team_id));
+  using (invitee_id = auth.uid() or private.can_manage_team(team_id));
 create policy team_invites_insert on public.team_invites
   for insert to authenticated
-  with check (public.can_manage_team(team_id) and invited_by = auth.uid() and status = 'pending');
+  with check (private.can_manage_team(team_id) and invited_by = auth.uid() and status = 'pending');
 create policy team_invites_delete on public.team_invites
   for delete to authenticated
-  using (public.can_manage_team(team_id) or invitee_id = auth.uid());
+  using (private.can_manage_team(team_id) or invitee_id = auth.uid());
 -- No UPDATE policy: accept/decline go through RPCs.
 
 -- team_invite_links: admins manage; joiners never SELECT (they use RPCs by token).
 create policy team_invite_links_select on public.team_invite_links
-  for select to authenticated using (public.can_manage_team(team_id));
+  for select to authenticated using (private.can_manage_team(team_id));
 create policy team_invite_links_insert on public.team_invite_links
   for insert to authenticated
-  with check (public.can_manage_team(team_id) and created_by = auth.uid());
+  with check (private.can_manage_team(team_id) and created_by = auth.uid());
 create policy team_invite_links_update on public.team_invite_links
   for update to authenticated
-  using (public.can_manage_team(team_id)) with check (public.can_manage_team(team_id));
+  using (private.can_manage_team(team_id)) with check (private.can_manage_team(team_id));
 create policy team_invite_links_delete on public.team_invite_links
-  for delete to authenticated using (public.can_manage_team(team_id));
+  for delete to authenticated using (private.can_manage_team(team_id));
 
 -- projects: any team member reads/creates/edits; creator or admin deletes.
 create policy projects_select on public.projects
-  for select to authenticated using (public.is_team_member(team_id));
+  for select to authenticated using (private.is_team_member(team_id));
 create policy projects_insert on public.projects
   for insert to authenticated
-  with check (public.is_team_member(team_id) and created_by = auth.uid());
+  with check (private.is_team_member(team_id) and created_by = auth.uid());
 create policy projects_update on public.projects
   for update to authenticated
-  using (public.is_team_member(team_id)) with check (public.is_team_member(team_id));
+  using (private.is_team_member(team_id)) with check (private.is_team_member(team_id));
 create policy projects_delete on public.projects
   for delete to authenticated
-  using (created_by = auth.uid() or public.can_manage_team(team_id));
+  using (
+    (created_by = auth.uid() and private.is_team_member(team_id))
+    or private.can_manage_team(team_id)
+  );
 
 -- notes
 create policy notes_select on public.notes
-  for select to authenticated using (public.can_access_project(project_id));
+  for select to authenticated using (private.can_access_project(project_id));
 create policy notes_insert on public.notes
   for insert to authenticated
-  with check (public.can_access_project(project_id) and created_by = auth.uid());
+  with check (private.can_access_project(project_id) and created_by = auth.uid());
 create policy notes_update on public.notes
   for update to authenticated
-  using (public.can_access_project(project_id)) with check (public.can_access_project(project_id));
+  using (private.can_access_project(project_id)) with check (private.can_access_project(project_id));
 create policy notes_delete on public.notes
   for delete to authenticated
-  using (created_by = auth.uid() or public.can_manage_team(public.team_of_project(project_id)));
+  using (
+    (created_by = auth.uid() and private.can_access_project(project_id))
+    or private.can_manage_team(private.team_of_project(project_id))
+  );
 
 -- comments
 create policy comments_select on public.comments
-  for select to authenticated using (public.can_access_note(note_id));
+  for select to authenticated using (private.can_access_note(note_id));
 create policy comments_insert on public.comments
   for insert to authenticated
-  with check (public.can_access_note(note_id) and author_id = auth.uid());
+  with check (private.can_access_note(note_id) and author_id = auth.uid());
 create policy comments_update on public.comments
-  for update to authenticated using (author_id = auth.uid()) with check (author_id = auth.uid());
+  for update to authenticated
+  using (author_id = auth.uid())
+  with check (author_id = auth.uid() and private.can_access_note(note_id));
 create policy comments_delete on public.comments
   for delete to authenticated
-  using (author_id = auth.uid() or public.can_manage_team(public.team_of_note(note_id)));
+  using (
+    (author_id = auth.uid() and private.can_access_note(note_id))
+    or private.can_manage_team(private.team_of_note(note_id))
+  );
 
 -- ---------------------------------------------------------------------------
 -- 8. Triggers
@@ -348,12 +366,14 @@ begin
     candidate := base || n::text;
   end loop;
 
-  insert into public.profiles (id, username, full_name, contact_email, avatar_url)
+  -- Note: contact_email is intentionally NOT set from the login email. Profiles
+  -- are world-readable to authenticated users, so we don't auto-expose everyone's
+  -- private auth email; users opt in by setting a contact email in their profile.
+  insert into public.profiles (id, username, full_name, avatar_url)
   values (
     new.id,
     candidate,
     new.raw_user_meta_data ->> 'full_name',
-    new.email,
     new.raw_user_meta_data ->> 'avatar_url'
   );
   return new;
@@ -471,7 +491,7 @@ begin
            l.role,
            (l.expires_at is null or l.expires_at > now())
              and (l.max_uses is null or l.uses < l.max_uses),
-           public.is_team_member(l.team_id)
+           private.is_team_member(l.team_id)
     from public.teams t
     where t.id = l.team_id;
 end;
@@ -491,7 +511,7 @@ begin
   if l.max_uses is not null and l.uses >= l.max_uses then
     raise exception 'link exhausted';
   end if;
-  if public.is_team_member(l.team_id) then
+  if private.is_team_member(l.team_id) then
     return l.team_id;  -- idempotent
   end if;
   insert into public.team_members (team_id, user_id, role)
@@ -505,16 +525,19 @@ create or replace function public.set_member_role(_team_id uuid, _user_id uuid, 
 returns void language plpgsql security definer set search_path = '' as $$
 declare caller public.team_role;
 begin
-  caller := public.team_role(_team_id);
+  caller := private.team_role(_team_id);
   if caller is null then
     raise exception 'not a member of this team';
   end if;
   -- Anything touching ownership requires the current owner.
-  if _role = 'owner' or public.team_role_of(_team_id, _user_id) = 'owner' then
+  if _role = 'owner' or private.team_role_of(_team_id, _user_id) = 'owner' then
     raise exception 'use transfer_ownership to change ownership';
   end if;
   if caller not in ('owner', 'admin') then
     raise exception 'insufficient privileges';
+  end if;
+  if caller = 'admin' and private.team_role_of(_team_id, _user_id) = 'admin' then
+    raise exception 'admins cannot change other admins';
   end if;
   update public.team_members set role = _role
     where team_id = _team_id and user_id = _user_id;
@@ -527,7 +550,7 @@ $$;
 create or replace function public.leave_team(_team_id uuid)
 returns void language plpgsql security definer set search_path = '' as $$
 begin
-  if public.team_role(_team_id) = 'owner'
+  if private.team_role(_team_id) = 'owner'
      and (select count(*) from public.team_members where team_id = _team_id and role = 'owner') = 1 then
     raise exception 'transfer ownership or delete the team before leaving';
   end if;
@@ -540,9 +563,9 @@ returns void language plpgsql security definer set search_path = '' as $$
 declare caller public.team_role;
 declare target public.team_role;
 begin
-  caller := public.team_role(_team_id);
-  target := public.team_role_of(_team_id, _user_id);
-  if caller not in ('owner', 'admin') then
+  caller := private.team_role(_team_id);
+  target := private.team_role_of(_team_id, _user_id);
+  if caller is null or caller not in ('owner', 'admin') then
     raise exception 'insufficient privileges';
   end if;
   if target is null then
@@ -561,10 +584,10 @@ $$;
 create or replace function public.transfer_ownership(_team_id uuid, _new_owner uuid)
 returns void language plpgsql security definer set search_path = '' as $$
 begin
-  if public.team_role(_team_id) <> 'owner' then
+  if private.team_role(_team_id) <> 'owner' then
     raise exception 'only the owner can transfer ownership';
   end if;
-  if public.team_role_of(_team_id, _new_owner) is null then
+  if private.team_role_of(_team_id, _new_owner) is null then
     raise exception 'new owner must already be a team member';
   end if;
   update public.team_members set role = 'admin'
