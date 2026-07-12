@@ -14,12 +14,11 @@
 --     RPCs, NOT client policies — this prevents privilege escalation and
 --     protects the last-owner invariant. team_members has no client write policy.
 
-begin;
-
 -- ---------------------------------------------------------------------------
 -- 1. Extensions
 -- ---------------------------------------------------------------------------
 create extension if not exists pg_trgm with schema extensions;
+create extension if not exists pgcrypto with schema extensions;
 
 -- ---------------------------------------------------------------------------
 -- 2. Destructive reset of the old (auth-less) schema
@@ -106,7 +105,7 @@ create table public.team_invite_links (
   team_id    uuid not null references public.teams (id) on delete cascade,
   token      text not null unique default encode(extensions.gen_random_bytes(16), 'hex'),
   role       public.team_role not null default 'member' check (role in ('admin', 'member')),
-  created_by uuid references public.profiles (id) on delete set null,
+  created_by uuid default auth.uid() references public.profiles (id) on delete set null,
   expires_at timestamptz,
   max_uses   integer check (max_uses is null or max_uses > 0),
   uses       integer not null default 0,
@@ -244,9 +243,11 @@ create policy profiles_insert on public.profiles
 create policy profiles_update on public.profiles
   for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
 
--- teams
+-- teams. The owner_id clause lets the creator see the row during
+-- INSERT ... RETURNING, before the AFTER-trigger adds their membership.
 create policy teams_select on public.teams
-  for select to authenticated using (public.is_team_member(id));
+  for select to authenticated
+  using (public.is_team_member(id) or owner_id = auth.uid());
 create policy teams_insert on public.teams
   for insert to authenticated with check (owner_id = auth.uid());
 create policy teams_update on public.teams
@@ -437,6 +438,21 @@ returns void language sql security definer set search_path = '' as $$
   where id = _invite_id and invitee_id = auth.uid() and status = 'pending';
 $$;
 
+-- The current user's pending invites, with team name + inviter (teams RLS would
+-- otherwise hide the team from a not-yet-member invitee).
+create or replace function public.invite_inbox()
+returns table (id uuid, team_id uuid, team_name text, role public.team_role,
+               invited_by_name text, created_at timestamptz)
+language sql stable security definer set search_path = '' as $$
+  select i.id, i.team_id, t.name, i.role,
+         coalesce(p.full_name, p.username), i.created_at
+  from public.team_invites i
+  join public.teams t on t.id = i.team_id
+  left join public.profiles p on p.id = i.invited_by
+  where i.invitee_id = auth.uid() and i.status = 'pending'
+  order by i.created_at desc;
+$$;
+
 -- Safe read for the "join by link" confirm screen (no table SELECT exposed).
 create or replace function public.preview_invite_link(_token text)
 returns table (team_id uuid, team_name text, role public.team_role,
@@ -560,21 +576,19 @@ end;
 $$;
 
 revoke all on function
-  public.accept_invite(uuid), public.decline_invite(uuid),
+  public.accept_invite(uuid), public.decline_invite(uuid), public.invite_inbox(),
   public.preview_invite_link(text), public.join_team_via_link(text),
   public.set_member_role(uuid, uuid, public.team_role),
   public.leave_team(uuid), public.remove_member(uuid, uuid),
   public.transfer_ownership(uuid, uuid)
 from public;
 grant execute on function
-  public.accept_invite(uuid), public.decline_invite(uuid),
+  public.accept_invite(uuid), public.decline_invite(uuid), public.invite_inbox(),
   public.preview_invite_link(text), public.join_team_via_link(text),
   public.set_member_role(uuid, uuid, public.team_role),
   public.leave_team(uuid), public.remove_member(uuid, uuid),
   public.transfer_ownership(uuid, uuid)
 to authenticated;
-
-commit;
 
 -- ---------------------------------------------------------------------------
 -- 10. Storage bucket for avatars (run separately if the buckets insert is
