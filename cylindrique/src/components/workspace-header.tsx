@@ -57,11 +57,27 @@ export function WorkspaceHeader({
   } else if (view === "notes") {
     title = filterProjectId ? projectName(filterProjectId) : "Notes";
     subtitle = `${notesShown} note${notesShown === 1 ? "" : "s"}`;
-  } else {
+  } else if (view === "teams") {
     title = "Teams";
     subtitle = `${teamsCount} workspace${teamsCount === 1 ? "" : "s"}`;
+  } else if (view === "members") {
+    title = "Members";
+    subtitle = activeTeam ? activeTeam.name : "";
+  } else if (view === "invites") {
+    title = "Invitations";
+    subtitle = "Accept invites or join with a link";
+  } else {
+    title = "Profile";
+    subtitle = "Your public profile";
   }
 
+  const searchable =
+    hasTeam && (view === "projects" || view === "notes" || view === "teams");
+  const showNew =
+    view === "dashboard" ||
+    view === "projects" ||
+    view === "notes" ||
+    view === "teams";
   const newLabel = !hasTeam
     ? "New team"
     : view === "projects"
@@ -100,7 +116,7 @@ export function WorkspaceHeader({
         <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
       </div>
 
-      {hasTeam ? (
+      {searchable ? (
         <div className="relative hidden sm:block">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -112,10 +128,12 @@ export function WorkspaceHeader({
         </div>
       ) : null}
 
-      <Button className="h-9" onClick={onNew}>
-        <Plus />
-        <span className="hidden sm:inline">{newLabel}</span>
-      </Button>
+      {showNew ? (
+        <Button className="h-9" onClick={onNew}>
+          <Plus />
+          <span className="hidden sm:inline">{newLabel}</span>
+        </Button>
+      ) : null}
     </header>
   );
 }

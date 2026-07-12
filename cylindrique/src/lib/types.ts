@@ -65,3 +65,6 @@ export type InviteLinkPreview = {
   valid: boolean;
   already_member: boolean;
 };
+
+export type InviteInboxRow =
+  Database["public"]["Functions"]["invite_inbox"]["Returns"][number];

@@ -2,7 +2,14 @@
 
 import type { KeyboardEvent } from "react";
 
-export type View = "dashboard" | "projects" | "notes" | "teams";
+export type View =
+  | "dashboard"
+  | "projects"
+  | "notes"
+  | "teams"
+  | "members"
+  | "invites"
+  | "profile";
 export type CreateType = "note" | "project" | "team";
 
 /** Props that make a non-button element behave as an accessible clickable card. */

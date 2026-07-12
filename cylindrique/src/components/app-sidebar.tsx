@@ -5,9 +5,14 @@ import {
   ChevronsUpDown,
   Folders,
   LayoutDashboard,
+  LogOut,
+  Mail,
   Plus,
   StickyNote,
+  UserPlus,
+  UserRound,
   Users,
+  UsersRound,
 } from "lucide-react";
 
 import {
@@ -33,46 +38,60 @@ import {
   SidebarMenuItem,
   SidebarMenuSkeleton,
 } from "@/components/ui/sidebar";
+import { UserAvatar } from "@/components/user-avatar";
 import { WorkspaceAvatar } from "@/components/workspace-avatar";
-import type { Project, Team } from "@/lib/types";
+import { createClient } from "@/utils/supabase/client";
+import type { Project, Team, TeamRole } from "@/lib/types";
 import { accentFromId, initials, type View } from "@/lib/workspace-utils";
 
-const NAV: { key: View; label: string; icon: typeof LayoutDashboard }[] = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { key: "projects", label: "Projects", icon: Folders },
-  { key: "notes", label: "Notes", icon: StickyNote },
-  { key: "teams", label: "Teams", icon: Users },
-];
+const ROLE_LABEL: Record<TeamRole, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  member: "Member",
+};
+
+async function signOut() {
+  try {
+    await createClient().auth.signOut();
+  } finally {
+    window.location.assign("/login");
+  }
+}
 
 export function AppSidebar({
   teams,
   activeTeam,
   projects,
   notesCount,
+  membersCount,
+  inboxCount,
+  role,
   contentLoading,
   view,
+  user,
   onSelectTeam,
   onNavigate,
   onOpenProject,
   onCreateTeam,
+  onInvite,
 }: {
   teams: Team[];
   activeTeam: Team | null;
   projects: Project[];
   notesCount: number;
+  membersCount: number;
+  inboxCount: number;
+  role: TeamRole | null;
   contentLoading: boolean;
   view: View;
+  user: { name: string; email: string | null; avatarUrl: string | null };
   onSelectTeam: (id: string) => void;
   onNavigate: (view: View) => void;
   onOpenProject: (projectId: string) => void;
   onCreateTeam: () => void;
+  onInvite: () => void;
 }) {
-  const counts: Record<View, number | null> = {
-    dashboard: null,
-    projects: projects.length,
-    notes: notesCount,
-    teams: teams.length,
-  };
+  const canManage = role === "owner" || role === "admin";
 
   return (
     <Sidebar>
@@ -96,16 +115,12 @@ export function AppSidebar({
                     {activeTeam ? activeTeam.name : "No workspace"}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
-                    {activeTeam ? "Workspace" : "Create one to start"}
+                    {activeTeam && role ? ROLE_LABEL[role] : "Create one to start"}
                   </span>
                 </div>
                 <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent
-                className="min-w-56"
-                align="start"
-                sideOffset={6}
-              >
+              <DropdownMenuContent className="min-w-56" align="start" sideOffset={6}>
                 <DropdownMenuGroup>
                   <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
                   {teams.map((team) => (
@@ -141,26 +156,79 @@ export function AppSidebar({
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Menu</SidebarGroupLabel>
+          <SidebarGroupLabel>Workspace</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV.map((item) => (
-                <SidebarMenuItem key={item.key}>
-                  <SidebarMenuButton
-                    isActive={view === item.key}
-                    onClick={() => onNavigate(item.key)}
-                  >
-                    <item.icon />
-                    <span>{item.label}</span>
-                  </SidebarMenuButton>
-                  {counts[item.key] !== null ? (
-                    <SidebarMenuBadge>{counts[item.key]}</SidebarMenuBadge>
-                  ) : null}
-                </SidebarMenuItem>
-              ))}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={view === "dashboard"}
+                  onClick={() => onNavigate("dashboard")}
+                >
+                  <LayoutDashboard />
+                  <span>Dashboard</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={view === "projects"}
+                  onClick={() => onNavigate("projects")}
+                >
+                  <Folders />
+                  <span>Projects</span>
+                </SidebarMenuButton>
+                <SidebarMenuBadge>{projects.length}</SidebarMenuBadge>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={view === "notes"}
+                  onClick={() => onNavigate("notes")}
+                >
+                  <StickyNote />
+                  <span>Notes</span>
+                </SidebarMenuButton>
+                <SidebarMenuBadge>{notesCount}</SidebarMenuBadge>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={view === "teams"}
+                  onClick={() => onNavigate("teams")}
+                >
+                  <Users />
+                  <span>Teams</span>
+                </SidebarMenuButton>
+                <SidebarMenuBadge>{teams.length}</SidebarMenuBadge>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {activeTeam ? (
+          <SidebarGroup>
+            <SidebarGroupLabel>Team</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={view === "members"}
+                    onClick={() => onNavigate("members")}
+                  >
+                    <UsersRound />
+                    <span>Members</span>
+                  </SidebarMenuButton>
+                  <SidebarMenuBadge>{membersCount}</SidebarMenuBadge>
+                </SidebarMenuItem>
+                {canManage ? (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton onClick={onInvite}>
+                      <UserPlus />
+                      <span>Invite people</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ) : null}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : null}
 
         {activeTeam && (contentLoading || projects.length > 0) ? (
           <SidebarGroup>
@@ -175,9 +243,7 @@ export function AppSidebar({
                     ))
                   : projects.slice(0, 6).map((project) => (
                       <SidebarMenuItem key={project.id}>
-                        <SidebarMenuButton
-                          onClick={() => onOpenProject(project.id)}
-                        >
+                        <SidebarMenuButton onClick={() => onOpenProject(project.id)}>
                           <span
                             className="size-2 shrink-0 rounded-full"
                             style={{ backgroundColor: accentFromId(project.id) }}
@@ -190,18 +256,76 @@ export function AppSidebar({
             </SidebarGroupContent>
           </SidebarGroup>
         ) : null}
+
+        <SidebarGroup>
+          <SidebarGroupLabel>You</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={view === "invites"}
+                  onClick={() => onNavigate("invites")}
+                >
+                  <Mail />
+                  <span>Invitations</span>
+                </SidebarMenuButton>
+                {inboxCount > 0 ? (
+                  <SidebarMenuBadge>{inboxCount}</SidebarMenuBadge>
+                ) : null}
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={view === "profile"}
+                  onClick={() => onNavigate("profile")}
+                >
+                  <UserRound />
+                  <span>Profile</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter>
-        <div className="flex items-center gap-2 rounded-md p-2">
-          <WorkspaceAvatar label="CY" color="#18181b" shape="circle" />
-          <div className="grid flex-1 text-left leading-tight">
-            <span className="truncate text-sm font-semibold">Cylindrique</span>
-            <span className="truncate text-xs text-muted-foreground">
-              Workspace demo
-            </span>
-          </div>
-        </div>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex w-full items-center gap-2 rounded-md p-2 text-left outline-hidden ring-sidebar-ring transition-colors hover:bg-sidebar-accent focus-visible:ring-2 aria-expanded:bg-sidebar-accent">
+                <UserAvatar
+                  name={user.name}
+                  avatarUrl={user.avatarUrl}
+                  className="size-8"
+                />
+                <div className="grid flex-1 text-left leading-tight">
+                  <span className="truncate text-sm font-semibold">
+                    {user.name}
+                  </span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {user.email ?? ""}
+                  </span>
+                </div>
+                <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className="min-w-56"
+                align="end"
+                side="top"
+                sideOffset={6}
+              >
+                <DropdownMenuItem onClick={() => onNavigate("profile")}>
+                  <UserRound className="size-4" />
+                  Profile
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={signOut}>
+                  <LogOut className="size-4" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   );

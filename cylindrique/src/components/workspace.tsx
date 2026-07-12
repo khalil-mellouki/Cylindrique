@@ -6,26 +6,35 @@ import { Users } from "lucide-react";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { CreateDialog } from "@/components/create-dialog";
+import { InviteDialog } from "@/components/invite-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { LoadingCards } from "@/components/loading-cards";
 import { NoteEditor } from "@/components/note-editor";
 import { WorkspaceHeader } from "@/components/workspace-header";
 import { DashboardView } from "@/components/views/dashboard-view";
+import { InvitesView } from "@/components/views/invites-view";
+import { MembersView } from "@/components/views/members-view";
 import { NotesView } from "@/components/views/notes-view";
+import { ProfileView } from "@/components/views/profile-view";
 import { ProjectsView } from "@/components/views/projects-view";
 import { TeamsView } from "@/components/views/teams-view";
+import { useUser } from "@/components/auth/user-provider";
 import { useWorkspace } from "@/hooks/use-workspace";
-import type { Note, Project, Team } from "@/lib/types";
+import type { Note, Profile, Project, Team } from "@/lib/types";
 import type { CreateType, View } from "@/lib/workspace-utils";
 
 export function Workspace() {
-  const ws = useWorkspace();
+  const { user, profile: initialProfile } = useUser();
+  const ws = useWorkspace(user.id);
+
   const [view, setView] = useState<View>("dashboard");
   const [search, setSearch] = useState("");
   const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createType, setCreateType] = useState<CreateType>("note");
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [profile, setProfile] = useState<Profile | null>(initialProfile);
 
   const activeTeam = useMemo(
     () => ws.teams.find((team) => team.id === ws.activeTeamId) ?? null,
@@ -42,6 +51,8 @@ export function Workspace() {
     [ws.notes, selectedNoteId],
   );
 
+  const displayName = profile?.full_name || profile?.username || "You";
+
   function navigate(next: View) {
     setView(next);
     setSearch("");
@@ -56,10 +67,10 @@ export function Workspace() {
 
   function handleSelectTeam(id: string) {
     ws.selectTeam(id);
-    // Drop any state that referenced the previous team.
     setFilterProjectId(null);
     setSelectedNoteId(null);
     setSearch("");
+    if (view === "members") return; // stay on members for the new team
   }
 
   function openCreate(nextType: CreateType) {
@@ -90,19 +101,46 @@ export function Workspace() {
     }
   }
 
+  async function handleJoined(teamId: string) {
+    await ws.refreshTeams(teamId);
+    await ws.refreshInbox();
+    navigate("dashboard");
+  }
+
   function renderView() {
     if (ws.teamsLoading) return <LoadingCards />;
+
+    // Views that don't need an active team.
+    if (view === "invites") {
+      return (
+        <InvitesView
+          inbox={ws.inbox}
+          loading={false}
+          onChanged={ws.refreshInbox}
+          onJoined={handleJoined}
+        />
+      );
+    }
+    if (view === "profile") {
+      return profile ? (
+        <ProfileView profile={profile} onSaved={setProfile} />
+      ) : (
+        <LoadingCards count={1} />
+      );
+    }
+
     if (!activeTeam) {
       return (
         <EmptyState
           icon={Users}
           title="Create your first workspace"
-          description="Workspaces hold your projects and notes. Create one to get started."
+          description="Workspaces hold your projects and notes. Create one, or accept an invitation."
           actionLabel="New workspace"
           onAction={() => openCreate("team")}
         />
       );
     }
+
     switch (view) {
       case "dashboard":
         return (
@@ -151,6 +189,18 @@ export function Workspace() {
             onSelectTeam={handleSelectTeam}
           />
         );
+      case "members":
+        return (
+          <MembersView
+            members={ws.members}
+            myUserId={user.id}
+            myRole={ws.role}
+            teamId={activeTeam.id}
+            loading={ws.contentLoading}
+            onChanged={ws.refreshMembers}
+            onInvite={() => setInviteOpen(true)}
+          />
+        );
       default:
         return null;
     }
@@ -163,12 +213,21 @@ export function Workspace() {
         activeTeam={activeTeam}
         projects={ws.projects}
         notesCount={ws.notes.length}
+        membersCount={ws.members.length}
+        inboxCount={ws.inbox.length}
+        role={ws.role}
         contentLoading={ws.contentLoading}
         view={view}
+        user={{
+          name: displayName,
+          email: user.email,
+          avatarUrl: profile?.avatar_url ?? null,
+        }}
         onSelectTeam={handleSelectTeam}
         onNavigate={navigate}
         onOpenProject={openProjectNotes}
         onCreateTeam={() => openCreate("team")}
+        onInvite={() => setInviteOpen(true)}
       />
       <SidebarInset className="flex h-svh min-w-0 flex-col overflow-hidden">
         <WorkspaceHeader
@@ -194,9 +253,7 @@ export function Workspace() {
 
       <NoteEditor
         note={selectedNote}
-        projectName={
-          selectedNote ? projectName(selectedNote.project_id) : ""
-        }
+        projectName={selectedNote ? projectName(selectedNote.project_id) : ""}
         onClose={() => setSelectedNoteId(null)}
         onSave={ws.updateNote}
         onDelete={async (id) => {
@@ -216,6 +273,14 @@ export function Workspace() {
         onCreateNote={ws.createNote}
         onCreated={handleCreated}
       />
+      {activeTeam ? (
+        <InviteDialog
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+          teamId={activeTeam.id}
+          onInvited={() => {}}
+        />
+      ) : null}
     </SidebarProvider>
   );
 }

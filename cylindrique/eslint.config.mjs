@@ -14,10 +14,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
   ]),
   {
-    // Hooks in this directory intentionally synchronize React state with
-    // external systems (a media-query listener and remote data fetching),
-    // where setting state inside an effect is the correct, standard pattern.
-    files: ["src/hooks/**/*.{ts,tsx}"],
+    // This app fetches data in effects and syncs React state with external
+    // systems (media queries, remote data) — the intended pattern here, since
+    // it deliberately avoids a data-fetching library. Disabled project-wide.
     rules: {
       "react-hooks/set-state-in-effect": "off",
     },

@@ -24,6 +24,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { CommentSection } from "@/components/comment-section";
 import type { Note } from "@/lib/types";
 import { formatRelative } from "@/lib/workspace-utils";
 
@@ -127,8 +128,11 @@ function NoteEditorForm({
           value={content}
           onChange={(event) => setContent(event.target.value)}
           placeholder="Start writing..."
-          className="min-h-64 flex-1 resize-none border-0 px-0 py-0 text-sm shadow-none focus-visible:ring-0"
+          className="min-h-40 resize-none border-0 px-0 py-0 text-sm shadow-none focus-visible:ring-0"
         />
+        <div className="mt-2 border-t pt-4">
+          <CommentSection noteId={note.id} />
+        </div>
       </div>
 
       <div className="flex items-center justify-between border-t p-4">
